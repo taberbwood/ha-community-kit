@@ -1,0 +1,8 @@
+# never commit real config, tokens, logs or state
+ha-kit.env
+*.env
+!common/config.example.env
+*.log
+*.state
+*.baseline
+.DS_Store

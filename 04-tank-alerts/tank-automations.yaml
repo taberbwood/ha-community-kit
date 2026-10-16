@@ -1,0 +1,91 @@
+# Reptile tank alerts. Paste each automation separately (Settings > Automations > Create > Edit in YAML).
+# Replace the sensor entity ids with yours and notify.mobile_app_your_phone with your phone's service.
+# Limits are Number helpers you create first (see README), so you can change them from a dashboard
+# without editing automations.
+
+# 1) Warm side temperature outside its limits for 15 minutes. Copy for the cool side.
+alias: "Tank: warm side temperature out of range"
+mode: single
+triggers:
+  - trigger: numeric_state
+    entity_id: sensor.tank_warm_temperature
+    below: input_number.tank_warm_min_temp
+    for: "00:15:00"
+    id: low
+  - trigger: numeric_state
+    entity_id: sensor.tank_warm_temperature
+    above: input_number.tank_warm_max_temp
+    for: "00:15:00"
+    id: high
+conditions:
+  # Skip the transition out of "unavailable" after a restart.
+  - condition: template
+    value_template: "{{ trigger.from_state.state not in ['unknown', 'unavailable'] }}"
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "Tank: warm side too {{ 'COLD' if trigger.id == 'low' else 'HOT' }}"
+      message: >-
+        Warm side is {{ states('sensor.tank_warm_temperature') }}°F
+        (limits {{ states('input_number.tank_warm_min_temp') }} to {{ states('input_number.tank_warm_max_temp') }}).
+      data:
+        push:
+          interruption-level: time-sensitive
+---
+# 2) Humidity outside its limits for 30 minutes. One per sensor.
+alias: "Tank: humidity out of range"
+mode: single
+triggers:
+  - trigger: numeric_state
+    entity_id: sensor.tank_warm_humidity
+    below: input_number.tank_humidity_min
+    for: "00:30:00"
+    id: low
+  - trigger: numeric_state
+    entity_id: sensor.tank_warm_humidity
+    above: input_number.tank_humidity_max
+    for: "00:30:00"
+    id: high
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "Tank: humidity {{ 'LOW' if trigger.id == 'low' else 'HIGH' }}"
+      message: "Humidity is {{ states('sensor.tank_warm_humidity') }}%."
+---
+# 3) Sensor battery low.
+alias: "Tank: sensor battery low"
+mode: single
+triggers:
+  - trigger: numeric_state
+    entity_id: sensor.tank_warm_battery
+    below: 20
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "Tank: sensor battery low"
+      message: "Warm side thermometer battery is {{ states('sensor.tank_warm_battery') }}%."
+---
+# 4) THE ONE PEOPLE FORGET: a sensor that stopped reporting.
+# A dead or out-of-range Bluetooth thermometer does not raise an error. It just goes quiet, and your
+# temperature alerts quietly stop protecting anything. last_reported changes on every report, even when
+# the value is the same, so 2 hours without one means the sensor is gone.
+alias: "Tank: sensor stopped reporting"
+mode: single
+triggers:
+  - trigger: template
+    value_template: >-
+      {{ ['sensor.tank_warm_temperature', 'sensor.tank_cool_temperature']
+         | map('states') | select('in', ['unknown', 'unavailable']) | list | count > 0
+         or (now() - states.sensor.tank_warm_temperature.last_reported) > timedelta(hours=2)
+         or (now() - states.sensor.tank_cool_temperature.last_reported) > timedelta(hours=2) }}
+    for: "00:10:00"
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "Tank: sensor silent"
+      message: >-
+        A tank thermometer has not reported for 2+ hours (dead battery or out of Bluetooth range).
+        Temperatures are NOT being watched.
+      data:
+        push:
+          interruption-level: time-sensitive

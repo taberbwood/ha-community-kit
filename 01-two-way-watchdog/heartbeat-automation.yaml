@@ -1,0 +1,54 @@
+# Home Assistant side of the server heartbeat. Create two helpers first (Settings > Devices & services >
+# Helpers): a Date and/or time helper named "server heartbeat" (date AND time) and a Toggle named
+# "server silent". Then Settings > Automations > Create > Edit in YAML, paste this, and change the
+# notify action to your phone.
+alias: "Server: stopped checking in"
+description: >-
+  The server sets input_datetime.server_heartbeat every 10 minutes (heartbeat.sh).
+  30 minutes of silence means the server, its cron, or the network path is down.
+mode: single
+triggers:
+  - trigger: template
+    value_template: >-
+      {{ (as_timestamp(now()) - (state_attr('input_datetime.server_heartbeat', 'timestamp') | float(0))) > 1800 }}
+    id: silent
+  - trigger: template
+    value_template: >-
+      {{ (as_timestamp(now()) - (state_attr('input_datetime.server_heartbeat', 'timestamp') | float(0))) < 900 }}
+    id: back
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: silent
+          - condition: state
+            entity_id: input_boolean.server_silent
+            state: "off"
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: input_boolean.server_silent
+          - action: notify.mobile_app_your_phone
+            data:
+              title: "Server has gone silent"
+              message: >-
+                No check-in for
+                {{ ((as_timestamp(now()) - (state_attr('input_datetime.server_heartbeat', 'timestamp') | float(0))) / 60) | int }}
+                minutes. The server, its scheduled jobs, or the network may be down.
+              data:
+                push:
+                  interruption-level: time-sensitive
+      - conditions:
+          - condition: trigger
+            id: back
+          - condition: state
+            entity_id: input_boolean.server_silent
+            state: "on"
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id: input_boolean.server_silent
+          - action: notify.mobile_app_your_phone
+            data:
+              title: "Server is checking in again"
+              message: "The server is back."
